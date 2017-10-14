@@ -272,6 +272,57 @@ void initWiFi() {
 //   }
 // }
 
+void startWiFi() {
+  // if wifi not connected
+  // rescan wifi
+  // if not found recognised wifi then sleep for 5 mins
+  // else connect to recognised wifi
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected");
+    stopSensorTimer();
+    // Scan Network
+    if (scanWiFiNetworks() == true) {
+      // found a network, lets connect to it
+      if (connectWiFiNetwork() == true) {
+        // configure Over The Air updates
+        configureOTA();
+        isWaitingForWiFi = false;
+        //startSensorTimer();
+        //stopWiFiConnectTimer();
+      } else {
+        // couldn't connect to the wifi network
+        Serial.println("Couldn't connect to the WiFi network");
+        isWaitingForWiFi = true;
+        // trigger timer before we try again
+        //startWifiConnectTimer();
+
+        // Sleep for 1 minute
+        ESP.deepSleep(60000000);
+      }
+    } else {
+      // Couldn't find a known network to connect to
+      isWaitingForWiFi = true;
+      //stopSensorTimer();
+      // trigger timer before we try again
+      //startWifiConnectTimer();
+
+      // Sleep for 1 minute
+      ESP.deepSleep(60000000);
+
+    }
+  } else {
+    // We are connected to a network
+    // Only if we were waiting for wifi do these
+    // otherwise just carry on
+    if (isWaitingForWiFi == true) {
+      isWaitingForWiFi = false;
+      configureOTA();
+      //startSensorTimer();
+
+    }
+  }
+}
 
 void connectWithBroker() {
 
@@ -338,9 +389,22 @@ void setup()  {
   //connectWithBroker();
   // Start the sensor timer
 
-  initSensorTimer();
+  //initSensorTimer();
   // startSensorTimer();
+
+  startWiFi();
+
+  // Connect with broker
+  if ((client.connected() == false)) {
+    connectWithBroker();
+  }
+
+  readSensorData();
+  sendSensorData();
+  ESP.deepSleep(60000000);
 }
+
+
 
 void loop() {
 
@@ -349,61 +413,61 @@ void loop() {
   // if not found recognised wifi then sleep for 5 mins
   // else connect to recognised wifi
 
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi not connected");
-    stopSensorTimer();
-    // Scan Network
-    if (scanWiFiNetworks() == true) {
-      // found a network, lets connect to it
-      if (connectWiFiNetwork() == true) {
-        // configure Over The Air updates
-        configureOTA();
-        isWaitingForWiFi = false;
-        startSensorTimer();
-        //stopWiFiConnectTimer();
-      } else {
-        // couldn't connect to the wifi network
-        Serial.println("Couldn't connect to the WiFi network");
-        isWaitingForWiFi = true;
-        // trigger timer before we try again
-        //startWifiConnectTimer();
-
-        // Sleep for 1 minute
-        ESP.deepSleep(uint32_t time_us, optional RFMode mode)
-      }
-    } else {
-      // Couldn't find a known network to connect to
-      isWaitingForWiFi = true;
-      //stopSensorTimer();
-      // trigger timer before we try again
-      //startWifiConnectTimer();
-
-      // Sleep for 1 minute
-
-    }
-  } else {
-    // We are connected to a network
-    // Only if we were waiting for wifi do these
-    // otherwise just carry on
-    if (isWaitingForWiFi == true) {
-      isWaitingForWiFi = false;
-      configureOTA();
-      startSensorTimer();
-      //stopWiFiConnectTimer();
-    }
-  }
+  // if (WiFi.status() != WL_CONNECTED) {
+  //   Serial.println("WiFi not connected");
+  //   stopSensorTimer();
+  //   // Scan Network
+  //   if (scanWiFiNetworks() == true) {
+  //     // found a network, lets connect to it
+  //     if (connectWiFiNetwork() == true) {
+  //       // configure Over The Air updates
+  //       configureOTA();
+  //       isWaitingForWiFi = false;
+  //       startSensorTimer();
+  //       //stopWiFiConnectTimer();
+  //     } else {
+  //       // couldn't connect to the wifi network
+  //       Serial.println("Couldn't connect to the WiFi network");
+  //       isWaitingForWiFi = true;
+  //       // trigger timer before we try again
+  //       //startWifiConnectTimer();
+  //
+  //       // Sleep for 1 minute
+  //       ESP.deepSleep(uint32_t time_us, optional RFMode mode)
+  //     }
+  //   } else {
+  //     // Couldn't find a known network to connect to
+  //     isWaitingForWiFi = true;
+  //     //stopSensorTimer();
+  //     // trigger timer before we try again
+  //     //startWifiConnectTimer();
+  //
+  //     // Sleep for 1 minute
+  //
+  //   }
+  // } else {
+  //   // We are connected to a network
+  //   // Only if we were waiting for wifi do these
+  //   // otherwise just carry on
+  //   if (isWaitingForWiFi == true) {
+  //     isWaitingForWiFi = false;
+  //     configureOTA();
+  //     startSensorTimer();
+  //     //stopWiFiConnectTimer();
+  //   }
+  // }
 
   // Check to see we are connected to the broker
-  if ((client.connected() == false)) {
-    connectWithBroker();
-  }
+  // if ((client.connected() == false)) {
+  //   connectWithBroker();
+  // }
 
   // when the timer has completed and we aren't waiting for wifi
-  if (isSensorTimerComplete == true) {
-    isSensorTimerComplete = false;
-    readSensorData();
-    sendSensorData();
-  }
+  // if (isSensorTimerComplete == true) {
+  //   isSensorTimerComplete = false;
+  //   readSensorData();
+  //   sendSensorData();
+  // }
 
 
   // if (!!!client.connected()) {
@@ -424,8 +488,8 @@ void loop() {
   // Serial.println(" degrees C");
 
 
-  ArduinoOTA.handle();
-  client.loop();
+  // ArduinoOTA.handle();
+  // client.loop();
 }
 
 void sensorTimerFinished(void *pArg) {
