@@ -27,8 +27,11 @@ float nappyTempC = 0;
 float nappyHumid = 0;
 uint16_t volts = 0;
 int counter = 0;
-
+int selectedWiFiNetwork;
+String selectedWiFiNetworkSSID;
+String selectedWiFiNetworkPassword;
 const char* ssid = WIFI_SSID;
+bool isWaitingForWiFi = true;
 
 //@WiFiChange
 //const char* password = WIFI_PASSWORD;
@@ -39,6 +42,7 @@ char server[] = IOT_ORG IOT_BASE_URL;
 char authMethod[] = "use-token-auth";
 char token[] = IOT_TOKEN;
 char clientId[] = "d:" IOT_ORG ":" IOT_DEVICE_TYPE ":" IOT_DEVICE_ID;
+
 
 // MQTT topics
 
@@ -54,7 +58,11 @@ PubSubClient client(server, 1883, callback, wifiClient);
 Adafruit_SHT31 sht31 = Adafruit_SHT31();
 
 
+
 // Timers
+
+
+// Sensor Timer
 
 os_timer_t sensorTimer;
 bool isSensorTimerComplete = false;
@@ -70,6 +78,25 @@ void startSensorTimer() {
 void stopSensorTimer() {
   os_timer_disarm(&sensorTimer);
 }
+
+// WiFi Connection Timer
+
+os_timer_t wifiConnectTimer;
+bool isWifiConnectTimerComplete = false;
+
+void initWiFiConnectTimer() {
+  os_timer_setfn(&wifiConnectTimer, wifiConnectTimerFinished, NULL);
+}
+
+void startWifiConnectTimer() {
+  // wait for 5 minutes before trying again
+  os_timer_arm(&wifiConnectTimer, 10000, true);
+}
+
+void stopWiFiConnectTimer() {
+  os_timer_disarm(&wifiConnectTimer);
+}
+
 
 // JSON buffer size
 const int BUFFER_SIZE = JSON_OBJECT_SIZE(10);
@@ -111,7 +138,6 @@ void configureOTA() {
     ArduinoOTA.begin();
     Serial.println("Ready");
     Serial.print("IP address: ");
-    Serial.print("Test: ");
     Serial.println(WiFi.localIP());
 }
 
@@ -132,66 +158,141 @@ void printMacAddress() {
   unsigned char mac[6];
   WiFi.macAddress(mac);
   clientMac += macToStr(mac);
-  Serial.print("Mac address is...");
+  Serial.print("WiFi MAC: ");
   Serial.println(clientMac);
 }
 
-void init_wifi() {
-  Serial.println("Nappy Monitor v1");
-  Serial.println("Initialising Wifi");
-  WiFi.mode(WIFI_STA);
-  printMacAddress();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-
-
-  if (strcmp (WiFi.SSID().c_str(), ssid) != 0) {
-    //@WiFiChange
-    //WiFi.begin(ssid, password);
-    WiFi.begin(ssid);
+// Scan for WiFi networks to detect known network
+bool scanWiFiNetworks() {
+  // Scan for WiFi networks
+  int numOfNetworks = WiFi.scanNetworks(false);
+  // print list of WiFI networks detected
+  for (int i=0; i < numOfNetworks; i++) {
+    Serial.print("Network name: ");
+    Serial.println(WiFi.SSID(i));
   }
+  // Check if we find known wifi networks
+  int i=0;
+  bool match = false;
+  while ((i < numOfNetworks) && (match == false)) {
+    // check the network SSID against our list of known networks
+    Serial.print("Checking "+String(numOfKnownNetworks)+" known wifi networks against network: i="+String(i));
+    for (int j=0; j< numOfKnownNetworks; j++) {
+      Serial.println(" and j="+String(j));
+      Serial.println("Comparing ["+WiFi.SSID(i)+"] with ["+knownWifiNetworks[j].ssid+"]");
+      if (strcmp(WiFi.SSID(i).c_str(),knownWifiNetworks[j].ssid.c_str()) == 0) {
+        // if its a match, set it as the selected WiFi SSID
+        match = true;
+        selectedWiFiNetwork = i;
+        selectedWiFiNetworkSSID = WiFi.SSID(i);
+        selectedWiFiNetworkPassword = knownWifiNetworks[j].password;
+        Serial.println("Selected: "+selectedWiFiNetworkSSID);
+        return true;
+      }
+    }
+    i++;
+  }
+  return false;
+}
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
+bool connectWiFiNetwork() {
+  // First disconnect from previous WiFi network
+  //WiFi.disconnect(bool wifioff);
+  // Connect to the discovered network
+  //WiFi.begin(selectedWiFiNetworkSSID.c_str());
+  if (strcmp(selectedWiFiNetworkPassword.c_str(), "") == 0) {
+    WiFi.begin(selectedWiFiNetworkSSID.c_str());
+  } else {
+    WiFi.begin(selectedWiFiNetworkSSID.c_str(),selectedWiFiNetworkPassword.c_str());
+  }
+  int connectCounter = 0;
+  Serial.println("Connecting to "+selectedWiFiNetworkSSID);
+  // Wait up to connectCounter (seconds) to connect
+  while ((WiFi.status() != WL_CONNECTED) && (connectCounter < 30)) {
     Serial.print(".");
+    delay(1000);
+    connectCounter++;
   }
   Serial.println("");
-  Serial.print("WiFi connected with OTA4, IP address: ");
-  Serial.println(WiFi.localIP());
-  //publishDebug("WiFi Connected with OTA on IP: "+WiFi.localIP());
-  Serial.println("About to configure OTA");
-  configureOTA();
-  Serial.println("Configured OTA");
-  Serial.println("Checking WiFi again");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.print(".");
+  // if we're connected, return true otherwise false
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Failed to connect to WiFi");
+    return false;
+  } else {
+    Serial.println("Connected to WiFi");
+    return true;
   }
 }
+
+void initWiFi() {
+  Serial.println("Initialising WiFi");
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  printMacAddress();
+}
+
+// void init_wifi() {
+//   Serial.println("WiFi ");
+//   //int numOfNetworks = WiFi.scanNetworks(false);
+//
+//   // if (scanWiFiNetworks() == false {
+//   //   //NEXT: We want to sleep for 30 seconds before trying again
+//   //   // but need a timer, so we need to enter the loop. Let things drop out here
+//   //   // to get to the loop and then in the loop always check if "connected" variable
+//   //   // is true before taking a reading.
+//   // }
+//
+//   WiFi.mode(WIFI_STA);
+//   printMacAddress();
+//   Serial.print("Connecting to ");
+//   Serial.println(ssid);
+//
+//
+//   if (strcmp (WiFi.SSID().c_str(), ssid) != 0) {
+//     //@WiFiChange
+//     //WiFi.begin(ssid, password);
+//     WiFi.begin(ssid);
+//   }
+//
+//   while (WiFi.status() != WL_CONNECTED) {
+//     delay(1000);
+//     Serial.print(".");
+//   }
+//   Serial.println("");
+//   Serial.print("WiFi connected with OTA4, IP address: ");
+//   Serial.println(WiFi.localIP());
+//   //publishDebug("WiFi Connected with OTA on IP: "+WiFi.localIP());
+//   Serial.println("About to configure OTA");
+//   configureOTA();
+//   Serial.println("Configured OTA");
+//   Serial.println("Checking WiFi again");
+//   while (WiFi.status() != WL_CONNECTED) {
+//     delay(1000);
+//     Serial.print(".");
+//   }
+// }
 
 
 void connectWithBroker() {
 
-  Serial.println("Calling HTTP first");
-  WiFiClient httpClient;
-
-  while(httpClient.available()){
-      String line = httpClient.readStringUntil('\r');
-      Serial.print(line);
-  }
+  // Serial.println("Calling HTTP first");
+  // WiFiClient httpClient;
+  //
+  // while(httpClient.available()){
+  //     String line = httpClient.readStringUntil('\r');
+  //     Serial.print(line);
+  // }
 
   if (!!!client.connected()) {
-    Serial.print("Reconnecting client to ");
+    Serial.print("Connecting to ");
     Serial.println(server);
-
     int cursorPosition = 0;
     char connectionStateString[20];
     int connectionState;
 
-    Serial.println("Delaying for 10 seconds before trying to connect with Broker");
-    delay(10000);
+    //Serial.println("Delaying for 10 seconds before trying to connect with Broker");
+    delay(1000);
     while (!!!client.connect(clientId, authMethod, token)) {
-
       connectionState = client.state();
       sprintf(connectionStateString,"state=%d",connectionState);
       Serial.println(connectionStateString);
@@ -204,57 +305,112 @@ void connectWithBroker() {
   }
 }
 
+// Returns true if the sensor was initialised successfully
+bool initSensor() {
+  Serial.print("Initialising SHT31 sensor...");
+  if (!sht31.begin(0x44)) {
+    Serial.println("NOT FOUND");
+    return false;
+  } else {
+    Serial.println("FOUND");
+    return true;
+  }
+}
+
 void setup()  {
   // Configure serial port
   Serial.begin(115200);
-  Serial.println(server);
-  Serial.println(clientId);
+  Serial.println("Server: "+String(server));
+  Serial.println("ClientID:"+String(clientId));
   pinMode(D3, OUTPUT);
 //  digitalWrite(D1, 1); // switch off
 //  delay(3000);
   digitalWrite(D3, 1);
-  init_wifi();
-  connectWithBroker();
-  Serial.println("sensor is starting..");
-
-  // if (!tempsensor.begin()) {
-  //   Serial.println("Couldn't find MCP9808!");
-  // }
-
-  if (!sht31.begin(0x44)) {
-    Serial.println("sensor SHT31 couldn't be found");
-  } else {
-    Serial.println("found SHT31-D sensor");
+  if (initSensor() == false) {
+    // if we failed to initialise the sensor
+    // then just return and don't do anything
+    // TODO: Send message to system to alert parent there is an issue
+    return;
   }
-
+  // initialise WiFi but don't connect yet
+  initWiFi();
+  initWiFiConnectTimer();
+  //connectWithBroker();
   // Start the sensor timer
 
   initSensorTimer();
-  startSensorTimer();
+  // startSensorTimer();
 }
 
 void loop() {
 
+  // if wifi not connected
+  // rescan wifi
+  // if not found recognised wifi then sleep for 5 mins
+  // else connect to recognised wifi
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected");
+    stopSensorTimer();
+    // Scan Network
+    if (scanWiFiNetworks() == true) {
+      // found a network, lets connect to it
+      if (connectWiFiNetwork() == true) {
+        // configure Over The Air updates
+        configureOTA();
+        isWaitingForWiFi = false;
+        startSensorTimer();
+        //stopWiFiConnectTimer();
+      } else {
+        // couldn't connect to the wifi network
+        Serial.println("Couldn't connect to the WiFi network");
+        isWaitingForWiFi = true;
+        // trigger timer before we try again
+        //startWifiConnectTimer();
+
+        // Sleep for 1 minute
+        ESP.deepSleep(uint32_t time_us, optional RFMode mode)
+      }
+    } else {
+      // Couldn't find a known network to connect to
+      isWaitingForWiFi = true;
+      //stopSensorTimer();
+      // trigger timer before we try again
+      //startWifiConnectTimer();
+
+      // Sleep for 1 minute
+
+    }
+  } else {
+    // We are connected to a network
+    // Only if we were waiting for wifi do these
+    // otherwise just carry on
+    if (isWaitingForWiFi == true) {
+      isWaitingForWiFi = false;
+      configureOTA();
+      startSensorTimer();
+      //stopWiFiConnectTimer();
+    }
+  }
+
+  // Check to see we are connected to the broker
+  if ((client.connected() == false)) {
+    connectWithBroker();
+  }
+
+  // when the timer has completed and we aren't waiting for wifi
   if (isSensorTimerComplete == true) {
     isSensorTimerComplete = false;
     readSensorData();
     sendSensorData();
-
-
   }
 
-  // Check if the WiFI is still connected
-  if (WiFi.status() != WL_CONNECTED) {
-    WiFi.begin(ssid);
-    while (WiFi.status() != WL_CONNECTED) {
-      delay(1000);
-      Serial.print(".");
-    }
-  }
 
-  if (!!!client.connected()) {
-    connectWithBroker();
-  }
+  // if (!!!client.connected()) {
+  //   connectWithBroker();
+  // }
+
+
 
   // read analog temp sensor for battery
 
@@ -274,6 +430,10 @@ void loop() {
 
 void sensorTimerFinished(void *pArg) {
   isSensorTimerComplete = true;
+}
+
+void wifiConnectTimerFinished(void *pArg) {
+  isWifiConnectTimerComplete = true;
 }
 
 void sendSensorData() {
