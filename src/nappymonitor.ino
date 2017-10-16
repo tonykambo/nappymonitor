@@ -47,6 +47,7 @@ char clientId[] = "d:" IOT_ORG ":" IOT_DEVICE_TYPE ":" IOT_DEVICE_ID;
 // MQTT topics
 
 char sensorTopic[] = "iot-2/evt/sensor/fmt/json";
+char debugTopic[] = "iot-2/evt/debug/fmt/json";
 
 WiFiClient wifiClient;
 PubSubClient client(server, 1883, callback, wifiClient);
@@ -192,6 +193,7 @@ bool scanWiFiNetworks() {
     }
     i++;
   }
+  Serial.println("scanWiFiNetworks didn't find a known network");
   return false;
 }
 
@@ -297,8 +299,14 @@ void startWiFi() {
         // trigger timer before we try again
         //startWifiConnectTimer();
 
-        // Sleep for 1 minute
-        ESP.deepSleep(60000000);
+        // Serial.println("Simulating deep sleep, identified network but couldn't connect");
+        // delay(5000);
+        // ESP.restart();
+        // Serial.println("Shouldn't have gotten here");
+
+        // Sleep for 5 minute
+        Serial.println("startWiFi:Deep sleeping (couldn't connect to identified network)");
+        ESP.deepSleep(300000000);
       }
     } else {
       // Couldn't find a known network to connect to
@@ -307,20 +315,26 @@ void startWiFi() {
       // trigger timer before we try again
       //startWifiConnectTimer();
 
-      // Sleep for 1 minute
-      ESP.deepSleep(60000000);
+      // Serial.println("Simulating deep sleep, couldn't find known network");
+      // delay(5000);
+      // ESP.restart();
+      // Serial.println("Shouldn't have gotten here");
+
+      // Sleep for 5 minute
+      Serial.println("startWiFi:Deep sleeping (couldn't find known network)");
+      ESP.deepSleep(300000000);
 
     }
   } else {
     // We are connected to a network
     // Only if we were waiting for wifi do these
     // otherwise just carry on
-    if (isWaitingForWiFi == true) {
-      isWaitingForWiFi = false;
-      configureOTA();
-      //startSensorTimer();
-
-    }
+    // if (isWaitingForWiFi == true) {
+    //   isWaitingForWiFi = false;
+    //   configureOTA();
+    //   //startSensorTimer();
+    //
+    // }
   }
 }
 
@@ -399,8 +413,19 @@ void setup()  {
     connectWithBroker();
   }
 
+  publishDebug("Wifi intialised");
+
   readSensorData();
   sendSensorData();
+
+
+  // Serial.println("Simulating deep sleep after sending sensor data");
+  // delay(5000);
+  // ESP.restart();
+  // Serial.println("Shouldn't have gotten here");
+
+  Serial.println("Setup:Deep sleeping");
+  publishDebug("Setup:Deep sleeping");
   ESP.deepSleep(60000000);
 }
 
@@ -660,4 +685,19 @@ void callback(char* topic, byte* payload, unsigned int length) {
  String callBackDetails = "callback received on topic ["+topicString+"] with payload ["+payloadString+"]";
 
  Serial.println(callBackDetails);
+}
+
+void publishDebug(String debugMessage) {
+  Serial.println("Publishing debug message="+debugMessage);
+  String payload = "{\"d\":{\"myName\":\"ESP8266.Test1\",\"message\":";
+
+  payload += "\""+debugMessage+"\"}}";
+
+  Serial.println("debugMessage payload = "+payload);
+  if (client.publish(debugTopic, (char *) payload.c_str())) {
+    Serial.println("Published debug OK");
+  } else {
+    Serial.print("Publish failed with error:");
+    Serial.println(client.state());
+  }
 }
