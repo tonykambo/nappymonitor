@@ -1,8 +1,12 @@
 .pioenvs
 .piolibdeps
+.pio
 .clang_complete
 .gcc-flags.json
 SensitiveConfig.h
 *.sch.lck
 *.orig
 nodemcuv2
+.vscode/extensions.json
+.vscode/launch.json
+.vscode/c_cpp_properties.json
